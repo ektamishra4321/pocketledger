@@ -439,6 +439,70 @@ load();
 
 
 
+# ------------------------------------------------------- deployment support
+
+def seed_demo_data():
+    """Idempotent demo dataset for the public deployment (DEMO_MODE=1).
+    Hash-dedupe makes re-seeding on every boot a no-op."""
+    from datetime import date as _d, timedelta as _td
+    today = _d.today()
+    def mago(months, day):
+        y, m = today.year, today.month - months
+        while m < 1:
+            m += 12; y -= 1
+        try:
+            return _d(y, m, min(day, 28)).isoformat()
+        except ValueError:
+            return _d(y, m, 28).isoformat()
+    demo = [
+        (mago(0, 2), 380, "swiggy"), (mago(0, 4), 542, "zepto"),
+        (mago(0, 6), 245, "uber"), (mago(0, 8), 1299, "amazon"),
+        (mago(0, 10), 120, "chai"), (mago(0, 12), 799, "airtel broadband"),
+        (mago(1, 3), 420, "swiggy"), (mago(1, 9), 315, "blinkit"),
+        (mago(1, 15), 199, "uber"), (mago(1, 20), 2100, "dmart"),
+        (mago(3, 5), 649, "netflix"), (mago(2, 5), 649, "netflix"),
+        (mago(1, 4), 649, "netflix"), (mago(0, 5), 649, "netflix"),
+        (mago(3, 12), 199, "spotify"), (mago(2, 12), 199, "spotify"),
+        (mago(1, 12), 199, "spotify"), (mago(0, 12), 199, "spotify"),
+    ]
+    ledger = pl.get_ledger()
+    for d, amt, merch in demo:
+        from categorizer import categorize
+        ledger.add_transaction(d, amt * 100, merch, note="demo",
+                               category=categorize(merch), source="manual")
+    ledger.set_budget("food", 5000 * 100)
+    ledger.set_budget("groceries", 4000 * 100)
+
+
+DEMO_MODE = os.environ.get("DEMO_MODE") == "1"
+if DEMO_MODE:
+    os.environ.setdefault("POCKETLEDGER_DB", "/tmp/pocketledger_demo.db")
+    seed_demo_data()
+
+# naive in-memory rate limit for the public demo: protects the Gemini quota
+from collections import defaultdict as _dd
+from time import time as _now
+_hits = _dd(list)
+RATE_PER_HOUR = int(os.environ.get("RATE_PER_HOUR", "15"))
+GLOBAL_PER_DAY = int(os.environ.get("GLOBAL_PER_DAY", "400"))
+_global_hits = []
+
+def rate_limited(ip: str) -> str | None:
+    if not DEMO_MODE:
+        return None
+    t = _now()
+    _hits[ip] = [x for x in _hits[ip] if t - x < 3600]
+    while _global_hits and t - _global_hits[0] > 86400:
+        _global_hits.pop(0)
+    if len(_global_hits) >= GLOBAL_PER_DAY:
+        return "Demo has hit its daily message limit — the dashboard still works. Come back tomorrow!"
+    if len(_hits[ip]) >= RATE_PER_HOUR:
+        return f"Demo limit: {RATE_PER_HOUR} messages/hour. The dashboard and month browsing still work!"
+    _hits[ip].append(t)
+    _global_hits.append(t)
+    return None
+
+
 # ---------------------------------------------------------------- agent loop
 
 import html as _html
@@ -557,6 +621,9 @@ def chat():
     history = body.get("history") or []
     if not msg:
         return jsonify({"reply": "Say something first :)"})
+    limited = rate_limited(request.headers.get("X-Forwarded-For", request.remote_addr or "?").split(",")[0].strip())
+    if limited:
+        return jsonify({"reply": limited})
     if not API_KEY:
         return jsonify({"reply": "No GEMINI_API_KEY found. Create a .env file here with: GEMINI_API_KEY=your_key"})
     try:
@@ -570,5 +637,7 @@ def chat():
 
 
 if __name__ == "__main__":
-    print("\n  PocketLedger Chat → open  http://localhost:5050  in your browser\n")
-    app.run(host="127.0.0.1", port=5050, debug=False)
+    port = int(os.environ.get("PORT", "5050"))
+    host = "0.0.0.0" if os.environ.get("RENDER") or os.environ.get("DEMO_MODE") else "127.0.0.1"
+    print(f"\n  PocketLedger → http://localhost:{port}\n")
+    app.run(host=host, port=port, debug=False)
