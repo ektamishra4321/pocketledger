@@ -1,4 +1,5 @@
 # PocketLedger
+![PocketLedger dashboard](screenshot.png)
 
 **Talk to your money in plain language. The LLM only translates — deterministic Python + SQLite does every calculation.**
 
