@@ -1,0 +1,4 @@
+mcp[cli]>=1.2.0
+pytest>=8.0
+flask>=3.0
+requests>=2.31
