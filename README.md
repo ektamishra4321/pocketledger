@@ -1,4 +1,6 @@
 # PocketLedger
+![CI](https://github.com/ektamishra4321/pocketledger/actions/workflows/tests.yml/badge.svg)
+![Python](https://img.shields.io/badge/python-3.10%2B-blue)
 ![PocketLedger dashboard](screenshot.png)
 
 **Talk to your money in plain language. The LLM only translates — deterministic Python + SQLite does every calculation.**
